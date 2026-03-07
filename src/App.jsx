@@ -9,23 +9,26 @@ const localStorageAdapter = {
   load() {
     try {
       const perfiles = JSON.parse(localStorage.getItem("deuda_perfiles") || "null");
-      const perfilActivo = localStorage.getItem("deuda_perfil_activo") || PERFIL_DEFAULT_ID;
+      const perfilActivo = localStorage.getItem("deuda_perfil_activo") || null;
 
       if (perfiles && Object.keys(perfiles).length > 0) {
-        return { perfiles, perfilActivo };
+        return { perfiles, perfilActivo: perfilActivo || Object.keys(perfiles)[0] };
       }
 
+      // Migración desde versión anterior sin perfiles
       const oldItems = JSON.parse(localStorage.getItem("deuda_items") || "[]");
       const oldExtra = localStorage.getItem("deuda_extra") || "0";
-      return {
-        perfiles: { [PERFIL_DEFAULT_ID]: { nombre: "Principal", tipo: "consumo", items: oldItems, extra: oldExtra } },
-        perfilActivo: PERFIL_DEFAULT_ID,
-      };
+      if (oldItems.length > 0) {
+        return {
+          perfiles: { [PERFIL_DEFAULT_ID]: { nombre: "Principal", tipo: "consumo", items: oldItems, extra: oldExtra } },
+          perfilActivo: PERFIL_DEFAULT_ID,
+        };
+      }
+
+      // Primera vez: sin perfiles
+      return { perfiles: {}, perfilActivo: null };
     } catch {
-      return {
-        perfiles: { [PERFIL_DEFAULT_ID]: { nombre: "Principal", tipo: "consumo", items: [], extra: "0" } },
-        perfilActivo: PERFIL_DEFAULT_ID,
-      };
+      return { perfiles: {}, perfilActivo: null };
     }
   },
 
@@ -67,8 +70,8 @@ function useDeudaStore(adapter = localStorageAdapter) {
     return () => clearTimeout(timer);
   }, [perfiles, perfilActivo]);
 
-  const idActivo = perfilActivo in perfiles ? perfilActivo : Object.keys(perfiles)[0];
-  const perfil = perfiles[idActivo];
+  const idActivo = perfilActivo && perfilActivo in perfiles ? perfilActivo : Object.keys(perfiles)[0] || null;
+  const perfil = idActivo ? perfiles[idActivo] : null;
   const items = perfil?.items || [];
   const extraGlobal = perfil?.extra || "0";
   const huchaActual = perfil?.huchaActual || "0";
@@ -2303,6 +2306,9 @@ function AppInner() {
   const cerrarOnboarding = () => {
     localStorage.setItem("bdn_onboarding_done", "1");
     setMostrarOnboarding(false);
+    if (Object.keys(perfiles).length === 0) {
+      setModal("perfiles");
+    }
   };
   const reabrirOnboarding = () => {
     setMostrarAyuda(false);
@@ -2508,6 +2514,45 @@ function AppInner() {
       extra={extra}
       onCerrar={() => setVistaInforme(false)}
     />
+  );
+
+  // Sin perfiles: pantalla de bienvenida mínima
+  if (!perfil) return (
+    <>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 gap-6"
+      style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
+      <div className="text-center">
+        <div className="text-5xl mb-4">🎯</div>
+        <h1 className="text-2xl font-black text-slate-100 mb-2">Bienvenido a Prioriza</h1>
+        <p className="text-sm text-slate-400 leading-relaxed">Crea tu primer perfil para empezar a gestionar tus finanzas</p>
+      </div>
+      <button
+        onClick={() => setModal("perfiles")}
+        className="w-full max-w-xs py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-base transition shadow-lg shadow-indigo-900/40">
+        Crear mi primer perfil →
+      </button>
+    </div>
+    {modal === "perfiles" && (
+      <Modal title="Perfiles" onClose={() => setModal(null)}>
+        <ModalPerfiles
+          perfiles={perfiles}
+          perfilActivo={perfilActivo}
+          onSeleccionar={(id) => { seleccionarPerfil(id); setModal(null); }}
+          onCrear={crearPerfil}
+          onRenombrar={renombrarPerfil}
+          onEliminar={eliminarPerfil}
+          onClose={() => setModal(null)}
+        />
+      </Modal>
+    )}
+    {modal === "ajustes" && (
+      <Modal title="Ajustes" onClose={() => setModal(null)}>
+        <GestionDatos onExportar={exportarBackup} onRestaurar={restaurarBackup} />
+      </Modal>
+    )}
+    {mostrarOnboarding && <Onboarding onFin={cerrarOnboarding} />}
+    {mostrarAyuda && <PanelAyuda onCerrar={() => setMostrarAyuda(false)} onVerOnboarding={reabrirOnboarding} />}
+    </>
   );
 
   return (
