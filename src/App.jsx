@@ -2954,6 +2954,15 @@ function AppInner() {
           />
         )}
 
+        {/* ── DONATIVO ── */}
+        <div className="flex justify-center pb-2">
+          <a href="https://ko-fi.com/prioriza" target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-700/60 text-slate-500 hover:text-amber-400 hover:border-amber-700/50 hover:bg-amber-950/20 transition text-xs">
+            <span>🍺</span>
+            <span>¿Te ayuda Prioriza? Invítame a una cerveza</span>
+          </a>
+        </div>
+
       </div>
 
       {/* ── MODALES ── */}
