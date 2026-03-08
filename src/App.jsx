@@ -2225,105 +2225,135 @@ function GestionDatos({ onExportar, onRestaurar }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INFORME VIEW (sin cambios)
+// GENERADOR DE INFORME HTML
 // ─────────────────────────────────────────────────────────────────────────────
-function InformeView({ perfil, resultadosPorId, sinExtraPorId, simCon, extra, onCerrar }) {
-  const fmtM2 = (n) => `${Math.round(n)} mes${n === 1 ? "" : "es"}`;
+function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, extra }) {
+  const fmt = (n) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+  const fmtM = (n) => `${Math.round(n)} mes${n === 1 ? "" : "es"}`;
+  const addMonthsLocal = (n) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + Math.round(n));
+    return d.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  };
 
   const items = perfil.items;
+  const fechaHoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
   const totalPendiente = items.reduce((s, it) => s + (it.pendiente || 0), 0);
   const totalCuotas = items.reduce((s, it) => s + (it.cuotaFija || 0), 0);
   const totalSinBola = Object.values(sinExtraPorId).reduce((s, r) => s + r.interesesPagados, 0);
   const ahorroTotal = simCon ? totalSinBola - simCon.interesesTotales : 0;
   const plazoSin = Object.values(sinExtraPorId).length > 0 ? Math.max(...Object.values(sinExtraPorId).map(r => r.meses)) : 0;
   const plazoCon = simCon?.plazoGlobal ?? 0;
-  const fechaHoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
-  const [copiado, setCopiado] = useState(false);
 
-  const resumen = [
-    { label: "Total pendiente", value: `${fmt(totalPendiente)} €`, sub: `${items.length} deuda${items.length !== 1 ? "s" : ""}`, green: false },
-    { label: "Desembolso mensual", value: `${fmt(totalCuotas + extra)} €/mes`, sub: `${fmt(totalCuotas)} cuotas + ${fmt(extra)} extra`, green: false },
-    { label: "Ahorro en intereses", value: `${fmt(ahorroTotal)} €`, sub: "con el plan", green: true },
-    { label: "Libre de deudas en", value: addMonths(plazoCon), sub: `${fmtM2(plazoSin - plazoCon)} antes`, green: true },
-  ];
+  const tarjetaResumen = (label, value, sub, green = false) => `
+    <div class="card">
+      <div class="card-label">${label}</div>
+      <div class="card-value ${green ? "green" : ""}">${value}</div>
+      <div class="card-sub">${sub}</div>
+    </div>`;
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100" style={{ fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
-      <div className="sticky top-0 z-50 bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between print:hidden">
-        <div>
-          <p className="text-sm font-bold text-slate-100">📄 Informe de deudas</p>
-          <p className="text-xs text-slate-500">{perfil.nombre} · {fechaHoy}</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={onCerrar} className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition">✕ Cerrar</button>
-        </div>
-      </div>
-      <div className="max-w-2xl mx-auto px-5 py-6 space-y-5">
-        <div>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Resumen global</p>
-          <div className="grid grid-cols-2 gap-3">
-            {resumen.map((r, i) => (
-              <div key={i} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
-                <p className="text-xs text-slate-500 mb-1">{r.label}</p>
-                <p className={`text-lg font-black ${r.green ? "text-emerald-400" : "text-slate-100"}`}>{r.value}</p>
-                <p className="text-xs text-slate-500 mt-1">{r.sub}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Detalle de deudas</p>
-          <div className="space-y-3">
-            {items.map((it, idx) => {
-              const res = resultadosPorId[it.id];
-              const sinR = sinExtraPorId[it.id];
-              if (!res) return null;
-              const isHipoteca = it.tipo === "hipoteca";
-              const isPrestamo = it.tipo === "prestamo";
-              return (
-                <div key={it.id} className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-md text-white ${isHipoteca ? "bg-sky-600" : isPrestamo ? "bg-indigo-600" : "bg-violet-600"}`}>
-                      {isHipoteca ? "HIPOTECA" : isPrestamo ? "PRÉSTAMO" : "TARJETA"}
-                    </span>
-                    <span className="font-bold text-slate-100">{it.nombre}</span>
-                    <span className="ml-auto text-xs text-slate-500">#{idx + 1}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {[
-                      { l: "Pendiente", v: `${fmt(it.pendiente)} €` },
-                      { l: isHipoteca ? "TIN actual" : "TIN anual", v: `${it.tasaAnual || ((it.diferencial||0)+(it.euribor||0))}%` },
-                      { l: "Cuota", v: `${fmt(it.cuotaFija)} €/mes` },
-                    ].map((d, i) => (
-                      <div key={i} className="bg-slate-900/60 rounded-lg p-2">
-                        <p className="text-xs text-slate-500">{d.l}</p>
-                        <p className="text-sm font-bold text-slate-100 mt-0.5">{d.v}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="border-t border-slate-700 pt-3 grid grid-cols-3 gap-2">
-                    <div>
-                      <p className="text-xs text-slate-500">Sin plan</p>
-                      <p className="text-sm font-semibold text-slate-400 mt-0.5">{fmtM2(sinR?.meses ?? 0)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">{isHipoteca ? "Con hucha" : "Con bola de nieve"}</p>
-                      <p className="text-sm font-bold text-emerald-400 mt-0.5">{fmtM2(res.mesesCon)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Ahorro</p>
-                      <p className={`text-sm font-bold mt-0.5 ${(res.ahorro || 0) > 0 ? "text-emerald-400" : "text-slate-500"}`}>{fmt(res.ahorro || 0)} €</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <p className="text-center text-xs text-slate-600 pb-8">Generado con Prioriza · Planificador de deudas</p>
-      </div>
-    </div>
-  );
+  const filasDeudas = items.map((it, idx) => {
+    const res = resultadosPorId[it.id];
+    const sinR = sinExtraPorId[it.id];
+    if (!res) return "";
+    const isHip = it.tipo === "hipoteca";
+    const isPre = it.tipo === "prestamo";
+    const tipoLabel = isHip ? "HIPOTECA" : isPre ? "PRÉSTAMO" : "TARJETA";
+    const tipoColor = isHip ? "#0ea5e9" : isPre ? "#6366f1" : "#8b5cf6";
+    const tin = it.tasaAnual || ((it.diferencial || 0) + (it.euribor || 0));
+    return `
+    <tr>
+      <td><span class="badge" style="background:${tipoColor}">${tipoLabel}</span> ${it.nombre}</td>
+      <td>${fmt(it.pendiente)} €</td>
+      <td>${tin}%</td>
+      <td>${fmt(it.cuotaFija)} €/mes</td>
+      <td>${fmtM(sinR?.meses ?? 0)}</td>
+      <td class="green">${fmtM(res.mesesCon)}</td>
+      <td class="green">${fmt(res.ahorro || 0)} €</td>
+    </tr>`;
+  }).join("");
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Informe · ${perfil.nombre} · ${fechaHoy}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8fafc; color: #1e293b; padding: 32px 24px; }
+    .header { border-bottom: 3px solid #6366f1; padding-bottom: 16px; margin-bottom: 28px; }
+    .header h1 { font-size: 22px; font-weight: 900; color: #1e293b; }
+    .header p { font-size: 13px; color: #64748b; margin-top: 4px; }
+    .section-title { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; margin-top: 28px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    @media(min-width: 600px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+    .card-label { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
+    .card-value { font-size: 18px; font-weight: 900; color: #1e293b; }
+    .card-value.green { color: #10b981; }
+    .card-sub { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; font-size: 13px; }
+    th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 12px; border-top: 1px solid #f1f5f9; color: #334155; }
+    tr:hover td { background: #f8fafc; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; color: #fff; font-size: 10px; font-weight: 700; }
+    .green { color: #10b981; font-weight: 700; }
+    .footer { margin-top: 36px; text-align: center; font-size: 11px; color: #cbd5e1; }
+    @media print {
+      body { background: #fff; padding: 16px; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Informe de deudas · ${perfil.nombre}</h1>
+    <p>Generado el ${fechaHoy} · Prioriza</p>
+  </div>
+
+  <div class="section-title">Resumen global</div>
+  <div class="grid">
+    ${tarjetaResumen("Total pendiente", `${fmt(totalPendiente)} €`, `${items.length} deuda${items.length !== 1 ? "s" : ""}`)}
+    ${tarjetaResumen("Desembolso mensual", `${fmt(totalCuotas + extra)} €/mes`, `${fmt(totalCuotas)} cuotas + ${fmt(extra)} extra`)}
+    ${tarjetaResumen("Ahorro en intereses", `${fmt(ahorroTotal)} €`, "con el plan", true)}
+    ${tarjetaResumen("Libre de deudas en", addMonthsLocal(plazoCon), `${fmtM(plazoSin - plazoCon)} antes`, true)}
+  </div>
+
+  <div class="section-title">Detalle de deudas</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Deuda</th>
+        <th>Pendiente</th>
+        <th>TIN</th>
+        <th>Cuota</th>
+        <th>Sin plan</th>
+        <th>Con plan</th>
+        <th>Ahorro</th>
+      </tr>
+    </thead>
+    <tbody>${filasDeudas}</tbody>
+  </table>
+
+  <div class="footer">Prioriza · Tu planificador financiero personal</div>
+</body>
+</html>`;
+}
+
+function descargarInforme({ perfil, resultadosPorId, sinExtraPorId, simCon, extra }) {
+  const html = generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, extra });
+  const fecha = new Date().toISOString().slice(0, 10);
+  const nombre = perfil.nombre.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `prioriza-informe-${nombre}-${fecha}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2346,7 +2376,6 @@ function AppInner() {
 
   const esHipoteca = perfil?.tipo === "hipoteca";
 
-  const [vistaInforme, setVistaInforme] = useState(false);
   const [modal, setModal] = useState(null);
   const [modalIA, setModalIA] = useState(null); // { texto: string }
   const [draggingId, setDraggingId] = useState(null);
@@ -2559,17 +2588,6 @@ function AppInner() {
     setDraggingId(null);
     setDragOverId(null);
   }, [draggingId, items, reordenarItems]);
-
-  if (vistaInforme) return (
-    <InformeView
-      perfil={perfil}
-      resultadosPorId={resultadosPorId}
-      sinExtraPorId={sinExtraPorId}
-      simCon={simCon}
-      extra={extra}
-      onCerrar={() => setVistaInforme(false)}
-    />
-  );
 
   // Sin perfiles: pantalla de bienvenida mínima
   if (!perfil) return (
@@ -2921,8 +2939,8 @@ function AppInner() {
         )}
 
         {items.length > 0 && (
-          <button onClick={() => setVistaInforme(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-600 text-slate-300 text-sm font-semibold hover:bg-slate-800 hover:border-slate-500 transition">
-            <span>📄</span><span>Ver informe / Exportar PDF</span>
+          <button onClick={() => descargarInforme({ perfil, resultadosPorId, sinExtraPorId, simCon, extra })} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-600 text-slate-300 text-sm font-semibold hover:bg-slate-800 hover:border-slate-500 transition">
+            <span>📄</span><span>Descargar informe</span>
           </button>
         )}
 
