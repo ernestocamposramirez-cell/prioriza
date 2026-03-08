@@ -128,6 +128,15 @@ function useDeudaStore(adapter = localStorageAdapter) {
 
   const seleccionarPerfil = (id) => setPerfilActivo(id);
 
+  const duplicarPerfil = (id) => {
+    const origen = perfiles[id];
+    if (!origen) return;
+    const nuevoId = ID();
+    const copia = { ...origen, nombre: `${origen.nombre} (copia)`, items: origen.items.map(it => ({ ...it, id: ID() })) };
+    setPerfiles((prev) => ({ ...prev, [nuevoId]: copia }));
+    setPerfilActivo(nuevoId);
+  };
+
   // ── CRUD Items ────────────────────────────────────────────────────────────
   const addItem = (item) => _setItems((p) => [...p, { ...item, id: ID() }]);
   const editItem = (item) => _setItems((p) => p.map((it) => (it.id === item.id ? item : it)));
@@ -178,41 +187,84 @@ ${configExtra}
 ${deudas || "  (sin deudas)"}`;
     });
 
-    const texto = `# 🤖 Contexto para IA — Prioriza
-Fecha de exportación: ${fecha}
+    const texto = `# CONTEXTO PARA IA - Prioriza
+Fecha de exportacion: ${fecha}
 
-## ¿Qué es esta app?
-Prioriza es una aplicación web de planificación financiera personal que funciona completamente en el navegador (sin servidor, datos solo en localStorage). Permite:
-- Gestionar deudas de consumo (préstamos y tarjetas) usando las estrategias Bola de Nieve y Avalancha
-- Gestionar hipotecas variables con euríbor, sistema de "hucha" para amortizaciones anticipadas y revisiones periódicas de cuota
+## QUE ES ESTA APP
+Prioriza es una aplicacion web de planificacion financiera personal que funciona completamente en el navegador (sin servidor, datos solo en localStorage). Permite:
+- Gestionar deudas de consumo (prestamos y tarjetas) usando las estrategias Bola de Nieve y Avalancha
+- Gestionar hipotecas variables con euribor, sistema de "hucha" para amortizaciones anticipadas y revisiones periodicas de cuota
 - Comparar estrategias de riqueza: amortizar anticipadamente vs invertir en fondo indexado
 - Exportar informes y backups
 
-## Motores de cálculo
-- Cuota francesa (sistema francés estándar): C = K·r·(1+r)^n / ((1+r)^n - 1)
-- Simulación bola de nieve: aplica el extra mensual a la deuda objetivo, al liquidarla recicla su cuota a la siguiente
-- Simulación hipoteca variable: recalcula cuota en cada revisión de euríbor, acumula hucha con rentabilidad, amortiza al alcanzar el mínimo del banco
-- Estrategia de riqueza: compara A (hucha→amortiza→invierte cuota liberada) vs B (invierte extra directamente desde mes 1)
+## MOTORES DE CALCULO - LOGICA EXACTA
 
-## Datos actuales del usuario
+### 1. Cuota francesa (prestamos)
+Formula: C = K * r * (1+r)^n / ((1+r)^n - 1)
+Donde K = capital, r = TIN/12/100, n = meses
+Cada mes: intereses = saldo * r, amortizacion = cuota - intereses, saldo -= amortizacion
+
+### 2. Tarjetas de credito
+El minimo del banco se calcula cada mes sobre el saldo real actualizado:
+  minimoBase = max(saldo * 0.03 + interesesMes, 25)
+  si saldo > limiteCredito: minimoBase += 9 (comision exceso)
+  cuotaEfectiva = max(cuotaElegidaPorUsuario, minimoBase)
+La simulacion recorre MES A MES con saldo actualizado. Cuando el saldo baja
+lo suficiente, el minimo del banco cae por debajo de la cuota elegida y se
+usa la cuota elegida automaticamente. El umbral aproximado es:
+  saldoUmbral = cuotaElegida / (TIN/100/12)
+Por ejemplo con TIN 12% y cuota 25: umbral = 25 / 0.01 = 2500 euros.
+Por encima de 2500 euros de saldo manda el banco, por debajo manda el usuario.
+
+### 3. Bola de nieve / Avalancha
+Cada mes, para cada deuda:
+  1. Calcular intereses del mes (saldo * TIN/12/100)
+  2. Calcular cuota base (minimo banco si tarjeta, cuota fija si prestamo)
+  3. Restar cuota base al saldo
+  4. Si es la deuda objetivo: aplicar ademas el extra disponible
+Cuando una deuda llega a 0: su cuota base real se suma al extra disponible
+(efecto bola de nieve). El orden objetivo es configurable por el usuario.
+
+### 4. Hipoteca variable con hucha
+Cada mes:
+  1. Calcular interes: capital * (diferencial + euribor) / 100 / 12
+  2. Calcular cuota: sistema frances con capital y meses restantes actuales
+  3. Si mes de revision (cada 12 meses desde mesRevision): recalcular cuota
+  4. Acumular hucha: hucha = hucha * (1 + rentHucha/100/12) + extraMensual
+  5. Si hucha >= minimoAmortizacion: amortizar (reducir plazo, no cuota)
+     amortExtra = floor(hucha / minimo) * minimo
+     si hay comision: coste = amortExtra * comisionPct/100
+     capital -= amortExtra, hucha -= amortExtra
+
+### 5. Estrategia de riqueza (A vs B)
+Estrategia A: acumula en hucha -> amortiza capital -> al liquidar invierte cuota liberada + extra
+Estrategia B: invierte el extra directamente en fondo indexado desde mes 1, paga solo cuota minima
+Al final del plazo original:
+  A_neto = fondoA * (1 - impuesto/100 sobre plusvalias) 
+  B_neto = fondoB * (1 - impuesto/100 sobre plusvalias) - capitalPendienteHipoteca
+Plusvalia = cartera final - total aportado (el impuesto NO se aplica sobre todo el capital)
+Comision fondo: rentabilidadNeta = rentabilidadBruta - comisionAnual (se descuenta mensualmente)
+
+## DATOS ACTUALES DEL USUARIO
 ${perfilesArr.join("\n\n")}
 
-## Cómo usar este contexto
-Puedes preguntarme sobre:
-- Qué hace cada funcionalidad de la app
-- Cómo interpretar los resultados que ves en pantalla
-- Si los cálculos de tu caso concreto tienen sentido
-- Cómo mejorar o añadir funcionalidades
-- Cualquier duda sobre tu situación financiera específica
-
-Si quieres que analice o modifique el código fuente, adjunta también el archivo App.jsx junto a este contexto.
+## COMO USAR ESTE CONTEXTO
+Con este contexto puedes preguntarme:
+- Si los calculos de tu caso concreto tienen sentido
+- Como interpretar los resultados que ves en pantalla
+- Cuanto tardas en liquidar cada deuda y cuanto pagas de intereses
+- Si conviene mas amortizar o invertir con tus datos reales
+- Como funciona exactamente cualquier calculo de la app
+- Como mejorar o anadir funcionalidades (adjunta tambien App.jsx para esto)
 `;
 
-    const blob = new Blob([texto], { type: "text/plain;charset=utf-8" });
+    // UTF-8 BOM para que Windows y otros programas lean bien los caracteres
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + texto], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bola-de-nieve-contexto-ia-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `prioriza-contexto-ia-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -272,6 +324,7 @@ Si quieres que analice o modifique el código fuente, adjunta también el archiv
     renombrarPerfil,
     eliminarPerfil,
     seleccionarPerfil,
+    duplicarPerfil,
     addItem,
     editItem,
     deleteItem,
@@ -1661,7 +1714,7 @@ function ComparadorEscenarios({ escenarios, onSeleccionar, mesesGlobalSin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // MODAL GESTIÓN DE PERFILES (actualizado para tipo)
 // ─────────────────────────────────────────────────────────────────────────────
-function ModalPerfiles({ perfiles, perfilActivo, onSeleccionar, onCrear, onRenombrar, onEliminar, onClose }) {
+function ModalPerfiles({ perfiles, perfilActivo, onSeleccionar, onCrear, onRenombrar, onEliminar, onDuplicar, onClose }) {
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoTipo, setNuevoTipo] = useState("consumo");
   const [editandoId, setEditandoId] = useState(null);
@@ -1727,7 +1780,9 @@ function ModalPerfiles({ perfiles, perfilActivo, onSeleccionar, onCrear, onRenom
               <p className="text-xs text-slate-500 mt-0.5">{nItems} deuda{nItems !== 1 ? "s" : ""} · extra {p.extra || "0"}€/mes</p>
             </button>
             <button onClick={() => { setEditandoId(id); setEditNombre(p.nombre); }}
-              className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition">✏️</button>
+              className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition" title="Renombrar">✏️</button>
+            <button onClick={() => onDuplicar(id)}
+              className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-700 transition" title="Duplicar">📋</button>
             {ids.length > 1 && !esActivo && (
               <button onClick={() => setConfirmEliminarId(id)}
                 className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-700 transition">🗑</button>
@@ -2284,7 +2339,7 @@ export default function App() {
 function AppInner() {
   const {
     perfiles, perfilActivo, perfil, items, extraGlobal, huchaActual, rentHuchaGlobal, saved,
-    crearPerfil, renombrarPerfil, eliminarPerfil, seleccionarPerfil,
+    crearPerfil, renombrarPerfil, eliminarPerfil, seleccionarPerfil, duplicarPerfil,
     addItem, editItem, deleteItem, reordenarItems, aplicarOrden,
     setExtraGlobal, setHuchaActual, setRentHuchaGlobal, exportarBackup, restaurarBackup, exportarParaIA,
   } = useDeudaStore();
@@ -2541,6 +2596,7 @@ function AppInner() {
           onCrear={crearPerfil}
           onRenombrar={renombrarPerfil}
           onEliminar={eliminarPerfil}
+          onDuplicar={(id) => { duplicarPerfil(id); setModal(null); }}
           onClose={() => setModal(null)}
         />
       </Modal>
@@ -2897,6 +2953,7 @@ function AppInner() {
             onCrear={crearPerfil}
             onRenombrar={renombrarPerfil}
             onEliminar={eliminarPerfil}
+            onDuplicar={(id) => { duplicarPerfil(id); setModal(null); }}
             onClose={() => setModal(null)}
           />
         </Modal>
@@ -3350,7 +3407,7 @@ const AYUDA_SECCIONES = [
       },
       {
         subtitulo: "¿Puedo tener varios perfiles?",
-        texto: "Sí. Por ejemplo: un perfil 'Deudas consumo' con tus préstamos personales y un perfil 'Hipoteca casa' para la variable. Cada perfil tiene sus propios datos, su propio extra mensual y, en el caso de hipoteca, su propia hucha con su rentabilidad.",
+        texto: "Sí. Cada perfil tiene sus propios datos, su propio extra mensual y, en el caso de hipoteca, su propia hucha con su rentabilidad. Pero los perfiles dan mucho más juego del que parece:\n\n• Compara condiciones: crea un perfil con tu préstamo actual y otro con la oferta de otro banco. Verás en segundos cuánto ahorras realmente cambiando.\n\n• Simula una reunificación: pon todas tus deudas actuales en un perfil y en otro pon el préstamo unificado que te ofrecen. Compara intereses totales y plazo — muchas veces la reunificación sale más cara de lo que parece.\n\n• Escenarios de extra: duplica un perfil y cambia solo el extra mensual para ver cuánto acelera la liquidación aportar 100€ más al mes.\n\n• Hipoteca fija vs variable: crea un perfil de consumo con la cuota de la fija como si fuera un préstamo y compara con tu hipoteca variable real.",
       },
       {
         subtitulo: "¿Qué es el botón 🤖?",
