@@ -585,11 +585,12 @@ function simularHipotecaVariable({
     let comisionPagada = 0;
     let golpe = false;
 
-    if (capital <= minimoAmortizacion) {
-      amortExtra = capital - amortCuota;
+    if (capital <= minimoAmortizacion && hucha >= capital - amortCuota && extraMensual > 0) {
+      // Capital residual menor que el mínimo: liquidar con hucha solo si hay extra y hucha suficiente
+      amortExtra = Math.max(0, capital - amortCuota);
       comisionPagada = amortExtra * (comisionAmortPct / 100);
       golpe = true;
-      hucha = 0;
+      hucha = Math.max(0, hucha - amortExtra);
     } else if (hucha >= minimoAmortizacion) {
       amortExtra = Math.floor(hucha / minimoAmortizacion) * minimoAmortizacion;
       comisionPagada = amortExtra * (comisionAmortPct / 100);
@@ -3077,8 +3078,8 @@ function calcularEstrategias({
       mRA = Math.max(0, mRA - 1);
       hA = rH > 0 ? hA * (1 + rH) + extra : hA + extra;
 
-      if (capA > 0.01 && capA <= minAmort) {
-        // Capital residual pequeño: liquidar directamente con hucha
+      if (capA > 0.01 && capA <= minAmort && hA >= capA) {
+        // Capital residual pequeño: liquidar con hucha solo si la hucha lo cubre
         comA += capA * (comisionAmortPct / 100);
         hA = Math.max(0, hA - capA);
         capA = 0;
