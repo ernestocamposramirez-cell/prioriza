@@ -355,8 +355,12 @@ const fmtDate = (iso) => {
 };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthsBetween = (isoA, isoB) => {
-  const a = new Date(isoA + "-01");
-  const b = new Date(isoB + "-01");
+  const parseISO = (s) => {
+    const parts = (s || "").split("-");
+    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+  };
+  const a = parseISO(isoA);
+  const b = parseISO(isoB);
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 };
 const addMonthsToRef = (fechaRefISO, meses) => {
@@ -1290,6 +1294,7 @@ function ModalActualizar({ item, onClose, onSave }) {
         s = Math.max(0, s + intMes - cuota);
       }
       saldoNuevo = s;
+      setPreview({ meses, saldoNuevo });
     } else if (item.tipo === "hipoteca") {
       const filas = simularHipotecaVariable({
         capitalInicial: item.pendiente,
@@ -1302,11 +1307,25 @@ function ModalActualizar({ item, onClose, onSave }) {
         comisionAmortPct: 0,
         maxMeses: meses,
       });
-      saldoNuevo = filas.length > 0 ? filas[filas.length - 1].capitalTras : item.pendiente;
+      const filaFinal = filas.length > 0 ? filas[filas.length - 1] : null;
+      const capitalFinal = filaFinal ? filaFinal.capitalTras : item.pendiente;
+      const mesesRestantes = Math.max(0, (item.mesesRestantes || 0) - filas.length);
+      const cuotaFinal = filaFinal ? filaFinal.cuota : item.cuotaFija;
+      const interesesAcumulados = filas.reduce((s, f) => s + f.interesMes, 0);
+      const amortizadoTotal = item.pendiente - capitalFinal;
+      setPreview({
+        meses,
+        saldoNuevo: capitalFinal,
+        mesesRestantes,
+        cuotaFinal,
+        interesesAcumulados,
+        amortizadoTotal,
+        esHipoteca: true,
+      });
     } else {
       saldoNuevo = avanzarAmortizacion(item.pendiente, item.cuotaFija, item.tasaAnual, meses);
+      setPreview({ meses, saldoNuevo });
     }
-    setPreview({ meses, saldoNuevo });
   };
 
   const confirmar = () => {
@@ -1315,7 +1334,17 @@ function ModalActualizar({ item, onClose, onSave }) {
       if (!s) return;
       onSave({ ...item, pendiente: s, fechaRef: fechaReal });
     } else if (modo === "proyectar" && preview && !preview.error) {
-      onSave({ ...item, pendiente: preview.saldoNuevo, fechaRef: fechaProyeccion });
+      if (preview.esHipoteca) {
+        onSave({
+          ...item,
+          pendiente: preview.saldoNuevo,
+          mesesRestantes: preview.mesesRestantes,
+          cuotaFija: preview.cuotaFinal,
+          fechaRef: fechaProyeccion,
+        });
+      } else {
+        onSave({ ...item, pendiente: preview.saldoNuevo, fechaRef: fechaProyeccion });
+      }
     }
     onClose();
   };
@@ -1352,6 +1381,33 @@ function ModalActualizar({ item, onClose, onSave }) {
             <div className={`rounded-xl p-3 border ${preview.error ? "bg-red-950/40 border-red-700" : "bg-slate-800 border-slate-700"}`}>
               {preview.error ? (
                 <p className="text-xs text-red-400">{preview.error}</p>
+              ) : preview.esHipoteca ? (
+                <>
+                  <p className="text-xs text-slate-400 mb-3">Estado estimado en <span className="text-slate-200 font-semibold">{fmtDate(fechaProyeccion)}</span> ({preview.meses} meses)</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Capital pendiente</span>
+                      <span className="text-indigo-300 font-bold">{fmt(preview.saldoNuevo)} €</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Amortizado en el periodo</span>
+                      <span className="text-emerald-300 font-bold">{fmt(preview.amortizadoTotal)} €</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Intereses pagados en el periodo</span>
+                      <span className="text-red-400 font-bold">{fmt(preview.interesesAcumulados)} €</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Cuota en esa fecha</span>
+                      <span className="text-slate-200 font-bold">{fmt(preview.cuotaFinal)} €/mes</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Meses restantes desde esa fecha</span>
+                      <span className="text-slate-200 font-bold">{preview.mesesRestantes} m</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-amber-400 mt-3">⚠ Estimación con euríbor fijo ({item.euribor}%). No incluye amortizaciones extraordinarias ni cambios de euríbor.</p>
+                </>
               ) : (
                 <>
                   <p className="text-xs text-slate-400 mb-2">Resultado estimado ({preview.meses} meses)</p>
