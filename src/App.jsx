@@ -2582,8 +2582,20 @@ function AppInner() {
     [itemsHipoteca, resultadosPorId]
   );
   const hipMesesAhorrados = hipMesesSin - hipMesesCon;
-  const hipFechaFinSin = hipMesesSin > 0 ? addMonths(hipMesesSin) : null;
-  const hipFechaFinCon = hipMesesCon > 0 ? addMonths(hipMesesCon) : null;
+  const hipFechaFinSin = useMemo(() => {
+    if (!itemsHipoteca.length || !hipMesesSin) return null;
+    const it = itemsHipoteca.reduce((max, cur) =>
+      (sinExtraPorId[cur.id]?.meses ?? 0) >= (sinExtraPorId[max.id]?.meses ?? 0) ? cur : max
+    );
+    return addMonthsToRef(it.fechaRef, sinExtraPorId[it.id]?.meses ?? 0);
+  }, [itemsHipoteca, sinExtraPorId, hipMesesSin]);
+  const hipFechaFinCon = useMemo(() => {
+    if (!itemsHipoteca.length || !hipMesesCon) return null;
+    const it = itemsHipoteca.reduce((max, cur) =>
+      (resultadosPorId[cur.id]?.mesesCon ?? 0) >= (resultadosPorId[max.id]?.mesesCon ?? 0) ? cur : max
+    );
+    return addMonthsToRef(it.fechaRef, resultadosPorId[it.id]?.mesesCon ?? 0);
+  }, [itemsHipoteca, resultadosPorId, hipMesesCon]);
 
   const handleAddItem = useCallback((item) => { addItem(item); setModal(null); }, [addItem]);
   const handleEditItem = useCallback((item) => { editItem(item); setModal(null); }, [editItem]);
