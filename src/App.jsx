@@ -2284,23 +2284,24 @@ function GestionDatos({ onExportar, onRestaurar }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // GENERADOR DE INFORME HTML
 // ─────────────────────────────────────────────────────────────────────────────
-function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, extra }) {
+function generarInformeHTML({
+  perfil, items, extra, esHipoteca,
+  resultadosPorId, sinExtraPorId,
+  ahorroTotal, pendienteTotal, cuotaTotalActual,
+  mesesGlobalSin, mesesGlobalCon, fechaFinSin, fechaFinCon,
+  hipAhorroIntereses, hipMesesSin, hipMesesCon,
+  hipFechaFinSin, hipFechaFinCon,
+}) {
   const fmt = (n) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
   const fmtM = (n) => `${Math.round(n)} mes${n === 1 ? "" : "es"}`;
-  const addMonthsLocal = (n) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + Math.round(n));
-    return d.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
-  };
-
-  const items = perfil.items;
   const fechaHoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
-  const totalPendiente = items.reduce((s, it) => s + (it.pendiente || 0), 0);
-  const totalCuotas = items.reduce((s, it) => s + (it.cuotaFija || 0), 0);
-  const totalSinBola = Object.values(sinExtraPorId).reduce((s, r) => s + r.interesesPagados, 0);
-  const ahorroTotal = simCon ? totalSinBola - simCon.interesesTotales : 0;
-  const plazoSin = Object.values(sinExtraPorId).length > 0 ? Math.max(...Object.values(sinExtraPorId).map(r => r.meses)) : 0;
-  const plazoCon = simCon?.plazoGlobal ?? 0;
+
+  const ahorro    = esHipoteca ? hipAhorroIntereses : ahorroTotal;
+  const mesesSin  = esHipoteca ? hipMesesSin  : mesesGlobalSin;
+  const mesesCon  = esHipoteca ? hipMesesCon  : mesesGlobalCon;
+  const fechaSin  = esHipoteca ? hipFechaFinSin : fechaFinSin;
+  const fechaCon  = esHipoteca ? hipFechaFinCon : fechaFinCon;
+  const mesesAhorrados = mesesSin - mesesCon;
 
   const tarjetaResumen = (label, value, sub, green = false) => `
     <div class="card">
@@ -2309,7 +2310,7 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
       <div class="card-sub">${sub}</div>
     </div>`;
 
-  const filasDeudas = items.map((it, idx) => {
+  const filasDeudas = items.map((it) => {
     const res = resultadosPorId[it.id];
     const sinR = sinExtraPorId[it.id];
     if (!res) return "";
@@ -2318,6 +2319,10 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
     const tipoLabel = isHip ? "HIPOTECA" : isPre ? "PRÉSTAMO" : "TARJETA";
     const tipoColor = isHip ? "#0ea5e9" : isPre ? "#6366f1" : "#8b5cf6";
     const tin = it.tasaAnual || ((it.diferencial || 0) + (it.euribor || 0));
+    // Para hipoteca la fecha fin viene de fechaRef + mesesCon
+    const fechaFinItem = isHip
+      ? (() => { const [y,m] = (it.fechaRef||"").split("-").map(Number); const d = new Date(y, m-1+(res.mesesCon||0), 1); return d.toLocaleDateString("es-ES",{month:"short",year:"numeric"}); })()
+      : (() => { const d = new Date(); d.setMonth(d.getMonth()+(res.mesesCon||0)); return d.toLocaleDateString("es-ES",{month:"short",year:"numeric"}); })();
     return `
     <tr>
       <td><span class="badge" style="background:${tipoColor}">${tipoLabel}</span> ${it.nombre}</td>
@@ -2326,6 +2331,7 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
       <td>${fmt(it.cuotaFija)} €/mes</td>
       <td>${fmtM(sinR?.meses ?? 0)}</td>
       <td class="green">${fmtM(res.mesesCon)}</td>
+      <td class="green">${fechaFinItem}</td>
       <td class="green">${fmt(res.ahorro || 0)} €</td>
     </tr>`;
   }).join("");
@@ -2366,15 +2372,15 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
 <body>
   <div class="header">
     <h1>Informe de deudas · ${perfil.nombre}</h1>
-    <p>Generado el ${fechaHoy} · Prioriza</p>
+    <p>Generado el ${fechaHoy} · Prioriza${extra > 0 ? ` · Extra mensual: ${fmt(extra)} €` : ""}</p>
   </div>
 
   <div class="section-title">Resumen global</div>
   <div class="grid">
-    ${tarjetaResumen("Total pendiente", `${fmt(totalPendiente)} €`, `${items.length} deuda${items.length !== 1 ? "s" : ""}`)}
-    ${tarjetaResumen("Desembolso mensual", `${fmt(totalCuotas + extra)} €/mes`, `${fmt(totalCuotas)} cuotas + ${fmt(extra)} extra`)}
-    ${tarjetaResumen("Ahorro en intereses", `${fmt(ahorroTotal)} €`, "con el plan", true)}
-    ${tarjetaResumen("Libre de deudas en", addMonthsLocal(plazoCon), `${fmtM(plazoSin - plazoCon)} antes`, true)}
+    ${tarjetaResumen("Total pendiente", `${fmt(pendienteTotal)} €`, `${items.length} deuda${items.length !== 1 ? "s" : ""}`)}
+    ${tarjetaResumen("Desembolso mensual", `${fmt(cuotaTotalActual + extra)} €/mes`, `${fmt(cuotaTotalActual)} cuotas${extra > 0 ? ` + ${fmt(extra)} extra` : ""}`)}
+    ${tarjetaResumen("Ahorro en intereses", `${fmt(ahorro)} €`, "con el plan", true)}
+    ${tarjetaResumen("Libre de deudas en", fechaCon || "—", mesesAhorrados > 0 ? `${Math.round(mesesAhorrados)} meses antes` : `${Math.round(mesesCon)} meses`, true)}
   </div>
 
   <div class="section-title">Detalle de deudas</div>
@@ -2387,6 +2393,7 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
         <th>Cuota</th>
         <th>Sin plan</th>
         <th>Con plan</th>
+        <th>Fecha fin</th>
         <th>Ahorro</th>
       </tr>
     </thead>
@@ -2398,10 +2405,10 @@ function generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, ex
 </html>`;
 }
 
-function descargarInforme({ perfil, resultadosPorId, sinExtraPorId, simCon, extra }) {
-  const html = generarInformeHTML({ perfil, resultadosPorId, sinExtraPorId, simCon, extra });
+function descargarInforme(params) {
+  const html = generarInformeHTML(params);
   const fecha = new Date().toISOString().slice(0, 10);
-  const nombre = perfil.nombre.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const nombre = params.perfil.nombre.replace(/[^a-z0-9]/gi, "_").toLowerCase();
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -3008,7 +3015,17 @@ function AppInner() {
         )}
 
         {items.length > 0 && (
-          <button onClick={() => descargarInforme({ perfil, resultadosPorId, sinExtraPorId, simCon, extra })} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-600 text-slate-300 text-sm font-semibold hover:bg-slate-800 hover:border-slate-500 transition">
+          <button onClick={() => descargarInforme({
+              perfil, items, extra,
+              esHipoteca,
+              resultadosPorId, sinExtraPorId,
+              // consumo
+              ahorroTotal, pendienteTotal, cuotaTotalActual,
+              mesesGlobalSin, mesesGlobalCon, fechaFinSin, fechaFinCon,
+              // hipoteca
+              hipAhorroIntereses, hipMesesSin, hipMesesCon,
+              hipFechaFinSin, hipFechaFinCon,
+            })} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-600 text-slate-300 text-sm font-semibold hover:bg-slate-800 hover:border-slate-500 transition">
             <span>📄</span><span>Descargar informe</span>
           </button>
         )}
