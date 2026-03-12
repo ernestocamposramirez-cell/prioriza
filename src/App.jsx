@@ -2292,6 +2292,8 @@ function generarInformeHTML({
   hipAhorroIntereses, hipMesesSin, hipMesesCon,
   hipFechaFinSin, hipFechaFinCon,
 }) {
+  // DEBUG — eliminar tras verificar
+  console.log('[INFORME]', { esHipoteca, hipAhorroIntereses, hipMesesCon, hipFechaFinCon, ahorroTotal, fechaFinCon });
   const fmt = (n) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
   const fmtM = (n) => `${Math.round(n)} mes${n === 1 ? "" : "es"}`;
   const fechaHoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
@@ -3222,23 +3224,66 @@ function calcularEstrategias({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE: SPARKLINE EVOLUCIÓN
+// COMPONENTE: SPARKLINE EVOLUCIÓN INTERACTIVA
 // ─────────────────────────────────────────────────────────────────────────────
-function SparklineEvolucion({ hist, mesLiqA, crossover, mesesTotal }) {
+function SparklineEvolucion({ hist, mesLiqA, crossover, mesesTotal, fechaRef }) {
+  const [cursor, setCursor] = useState(null);
   if (!hist || hist.length === 0) return null;
-  const W = 300, H = 72;
+
+  const W = 300, H = 80;
+  const visibleHist = cursor ? hist.slice(0, cursor) : hist;
   const maxVal = Math.max(...hist.map(h => Math.max(h.liqA, h.liqB)), 1);
   const px = mes => (mes / mesesTotal) * W;
   const py = val => H - (val / maxVal) * H;
-  const pathA = hist.map((h, i) => `${i === 0 ? "M" : "L"}${px(h.mes).toFixed(1)},${py(h.liqA).toFixed(1)}`).join(" ");
-  const pathB = hist.map((h, i) => `${i === 0 ? "M" : "L"}${px(h.mes).toFixed(1)},${py(h.liqB).toFixed(1)}`).join(" ");
+
+  const pathA = visibleHist.map((h, i) => `${i === 0 ? "M" : "L"}${px(h.mes).toFixed(1)},${py(h.liqA).toFixed(1)}`).join(" ");
+  const pathB = visibleHist.map((h, i) => `${i === 0 ? "M" : "L"}${px(h.mes).toFixed(1)},${py(h.liqB).toFixed(1)}`).join(" ");
+
+  const puntoActivo = cursor ? hist[cursor - 1] : hist[hist.length - 1];
+  const pxCursor = px(puntoActivo.mes);
+  const fmtK = n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toFixed(0);
+  const ganaMes = puntoActivo.liqA > puntoActivo.liqB;
+
+  // Fecha calendario desde fechaRef + meses del punto activo
+  const fechaCalendario = (() => {
+    const parts = (fechaRef || "").split("-").map(Number);
+    if (parts.length < 2) return null;
+    const d = new Date(parts[0], parts[1] - 1 + puntoActivo.mes, 1);
+    return d.toLocaleDateString("es-ES", { month: "short", year: "numeric" });
+  })();
+
   return (
-    <div className="w-full">
-      <svg width="100%" viewBox={`0 0 ${W} ${H + 18}`} style={{ display: "block" }}>
+    <div className="w-full space-y-2">
+      {/* SVG gráfica */}
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} style={{ display: "block" }}>
+        {/* Líneas de referencia */}
         {mesLiqA && <line x1={px(mesLiqA)} y1={0} x2={px(mesLiqA)} y2={H} stroke="#6366f1" strokeWidth="1" strokeDasharray="3,3" opacity="0.7" />}
         {crossover && <line x1={px(crossover)} y1={0} x2={px(crossover)} y2={H} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" opacity="0.9" />}
+
+        {/* Área sombreada bajo cada curva hasta el cursor */}
+        {visibleHist.length > 1 && <>
+          <path
+            d={`${pathB} L${px(puntoActivo.mes).toFixed(1)},${H} L${px(visibleHist[0].mes).toFixed(1)},${H} Z`}
+            fill="#7c3aed" opacity="0.06"
+          />
+          <path
+            d={`${pathA} L${px(puntoActivo.mes).toFixed(1)},${H} L${px(visibleHist[0].mes).toFixed(1)},${H} Z`}
+            fill="#10b981" opacity="0.06"
+          />
+        </>}
+
+        {/* Curvas */}
         <path d={pathB} fill="none" stroke="#7c3aed" strokeWidth="1.5" opacity="0.85" />
         <path d={pathA} fill="none" stroke="#10b981" strokeWidth="1.5" opacity="0.85" />
+
+        {/* Línea vertical del cursor */}
+        <line x1={pxCursor} y1={0} x2={pxCursor} y2={H} stroke="#94a3b8" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
+
+        {/* Puntos en el cursor */}
+        <circle cx={pxCursor} cy={py(puntoActivo.liqA)} r={3} fill="#10b981" stroke="#0f172a" strokeWidth="1" />
+        <circle cx={pxCursor} cy={py(puntoActivo.liqB)} r={3} fill="#7c3aed" stroke="#0f172a" strokeWidth="1" />
+
+        {/* Leyenda */}
         <circle cx={6} cy={H + 11} r={3} fill="#10b981" />
         <text x={12} y={H + 15} fontSize={8} fill="#64748b">A (líquido)</text>
         <circle cx={68} cy={H + 11} r={3} fill="#7c3aed" />
@@ -3252,6 +3297,53 @@ function SparklineEvolucion({ hist, mesLiqA, crossover, mesesTotal }) {
           <text x={212} y={H + 12} fontSize={8} fill="#64748b">Crossover</text>
         </>}
       </svg>
+
+      {/* Slider */}
+      <div className="px-1">
+        <input
+          type="range"
+          min={1}
+          max={hist.length}
+          value={cursor ?? hist.length}
+          onChange={e => setCursor(parseInt(e.target.value))}
+          className="w-full accent-indigo-500"
+          style={{ height: "4px" }}
+        />
+      </div>
+
+      {/* Tooltip de valores en el mes seleccionado */}
+      <div className={`rounded-xl border p-2.5 transition-colors ${ganaMes ? "bg-emerald-950/30 border-emerald-800/40" : "bg-violet-950/30 border-violet-800/40"}`}>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-slate-400">
+            Mes <strong className="text-slate-200">{puntoActivo.mes}</strong>
+            <span className="text-slate-600 ml-1">(año {(puntoActivo.mes / 12).toFixed(1)})</span>
+            {fechaCalendario && (
+              <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300 font-semibold text-[10px]">
+                {fechaCalendario}
+              </span>
+            )}
+          </span>
+          <span className={`text-[10px] font-bold ${ganaMes ? "text-emerald-400" : "text-violet-400"}`}>
+            {ganaMes ? "▲ A por delante" : "▲ B por delante"}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          <div className="text-center">
+            <p className="text-[9px] text-emerald-500 mb-0.5">A · Patrimonio</p>
+            <p className="text-xs font-black text-emerald-300">{fmtK(puntoActivo.liqA)} €</p>
+          </div>
+          <div className="text-center border-x border-slate-700/50">
+            <p className="text-[9px] text-slate-500 mb-0.5">Diferencia</p>
+            <p className={`text-xs font-black ${ganaMes ? "text-emerald-400" : "text-violet-400"}`}>
+              {ganaMes ? "+" : ""}{fmtK(puntoActivo.liqA - puntoActivo.liqB)} €
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] text-violet-400 mb-0.5">B · Patrimonio</p>
+            <p className="text-xs font-black text-violet-300">{fmtK(puntoActivo.liqB)} €</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3413,7 +3505,8 @@ function EstrategiaRiqueza({ items, extraMensual, huchaActual, rentHucha }) {
           <div className="bg-slate-800/30 rounded-xl p-3">
             <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Evolución patrimonio líquido</p>
             <SparklineEvolucion hist={res.hist} mesLiqA={res.mesLiqA}
-              crossover={res.crossover} mesesTotal={hipoteca.mesesRestantes} />
+              crossover={res.crossover} mesesTotal={hipoteca.mesesRestantes}
+              fechaRef={hipoteca.fechaRef} />
             <p className="text-[9px] mt-2 text-center">
               {res.crossover
                 ? <span className="text-amber-400">Crossover en mes {res.crossover} (año {(res.crossover/12).toFixed(1)}) — A supera a B en liquidez</span>
